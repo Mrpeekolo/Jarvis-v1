@@ -1,0 +1,585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JARVIS // Discrete Local AI</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Monaco Editor Loader -->
+  <link rel="stylesheet" data-name="vs/editor/editor.main" href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/editor/editor.main.min.css">
+  <style>
+    body { background-color: #0b0f17; color: #e2e8f0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0b0f17; }
+    ::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    .tool-pill { background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); color: #60a5fa; }
+    .mode-btn.active-mode { background: #2563eb; color: #ffffff; border-color: #3b82f6; font-weight: bold; }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+  <!-- Header Bar -->
+  <header class="h-12 border-b border-slate-800 bg-slate-950/80 px-4 flex items-center justify-between text-xs">
+    <div class="flex items-center gap-3">
+      <div class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></div>
+      <span class="font-bold tracking-wider text-slate-100">JARVIS CORE</span>
+      <span class="text-slate-600">//</span>
+      
+      <!-- Modal Architecture Switcher -->
+      <div class="flex items-center gap-1 bg-slate-900 border border-slate-800 p-0.5 rounded-md text-[11px]" id="mode-selector-container">
+        <button class="mode-btn px-2 py-0.5 rounded transition text-slate-400 hover:text-slate-200" data-mode="GENERAL">GENERAL</button>
+        <button class="mode-btn px-2 py-0.5 rounded transition text-slate-400 hover:text-slate-200" data-mode="DEV">DEV</button>
+        <button class="mode-btn px-2 py-0.5 rounded transition text-slate-400 hover:text-slate-200" data-mode="VISION">VISION</button>
+        <button class="mode-btn px-2 py-0.5 rounded transition text-slate-400 hover:text-slate-200" data-mode="OS_AUTO">OS</button>
+        <button class="mode-btn px-2 py-0.5 rounded transition text-slate-400 hover:text-slate-200" data-mode="GAMING">GAMING</button>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3">
+      <button id="toggle-details-btn" class="bg-slate-900 hover:bg-slate-800 text-slate-400 px-2 py-1 rounded text-xs border border-slate-800 transition" title="Toggle internal tool & activity trace">
+        Activity: Hidden
+      </button>
+      <label class="text-slate-400">MODEL:</label>
+      <select id="model-select" class="bg-slate-900 border border-slate-700 text-slate-200 rounded px-2 py-1 text-xs focus:outline-none">
+        <option value="">Detecting...</option>
+      </select>
+      <button id="reload-plugins-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded text-xs border border-slate-700 transition">
+        Reload
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Split Workspace -->
+  <main class="flex-1 flex overflow-hidden">
+    
+    <!-- Left Column: Chat Stream -->
+    <section class="w-1/2 flex flex-col border-r border-slate-800 bg-slate-950/40">
+      
+      <!-- Message Stream View -->
+      <div id="chat-stream" class="flex-1 overflow-y-auto p-4 space-y-4 text-sm">
+        <div class="p-3 rounded bg-slate-900/60 border border-slate-800/80 text-slate-300">
+          <div class="text-xs text-emerald-400 font-semibold mb-1 flex items-center justify-between">
+            <span>JARVIS SYSTEM</span>
+            <span id="active-mode-badge" class="bg-blue-900/40 text-blue-400 text-[10px] px-1.5 py-0.5 rounded border border-blue-800/60">MODE: GENERAL</span>
+          </div>
+          Local core initialized. Zero telemetry active. 
+          Try: <code class="text-amber-300">"Take a screenshot"</code> (Vision), <code class="text-amber-300">"Check git status"</code> (Dev), or <code class="text-amber-300">"What windows are open?"</code> (OS).
+        </div>
+      </div>
+
+      <!-- User Input Box -->
+      <div class="p-3 border-t border-slate-800 bg-slate-950/90">
+        <div class="flex gap-2">
+          <textarea id="chat-input" rows="2" placeholder="Ask JARVIS (e.g. 'Take a screenshot', 'Show open windows', 'Check git status')..." 
+            class="flex-1 bg-slate-900 border border-slate-800 rounded p-2.5 text-xs text-slate-100 focus:outline-none focus:border-blue-500 resize-none"></textarea>
+          <button id="send-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-medium px-4 rounded text-xs transition flex items-center justify-center">
+            SEND
+          </button>
+        </div>
+        <div class="mt-1 flex justify-between text-[10px] text-slate-500">
+          <span>Active Mode Tools: <span id="active-plugins-list" class="text-slate-400">...</span></span>
+          <span class="text-slate-600">Esc to abort</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Column: Tabbed Workspace (Code Sandbox / Screenshots / Running Apps) -->
+    <section class="w-1/2 flex flex-col bg-slate-950/60">
+      
+      <!-- Right Panel Tabs -->
+      <div class="h-10 border-b border-slate-800 bg-slate-900/40 px-3 flex items-center justify-between text-xs">
+        <div class="flex items-center gap-1">
+          <button class="right-tab-btn px-2.5 py-1 rounded bg-slate-800 text-slate-100 font-semibold transition" data-tab="sandbox">CODE SANDBOX</button>
+          <button class="right-tab-btn px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition" data-tab="screenshots">SCREENSHOTS</button>
+          <button class="right-tab-btn px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition" data-tab="apps">RUNNING APPS</button>
+        </div>
+        <div id="tab-action-sandbox" class="flex items-center gap-2">
+          <span class="text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">AST Guarded</span>
+          <button id="run-sandbox-btn" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-3 py-1 rounded text-xs transition flex items-center gap-1">
+            <span>RUN CODE</span>
+            <span class="text-[10px] opacity-75">(Ctrl+Enter)</span>
+          </button>
+        </div>
+        <div id="tab-action-screenshots" class="hidden flex items-center gap-2">
+          <button id="capture-screen-btn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-3 py-1 rounded text-xs transition">
+            Capture Screen
+          </button>
+        </div>
+        <div id="tab-action-apps" class="hidden flex items-center gap-2">
+          <button id="refresh-apps-btn" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1 rounded text-xs border border-slate-700 transition">
+            Refresh List
+          </button>
+        </div>
+      </div>
+
+      <!-- TAB 1: Code Sandbox -->
+      <div id="panel-sandbox" class="flex-1 flex flex-col overflow-hidden">
+        <div id="monaco-container" class="flex-1 bg-slate-950"></div>
+        <div class="h-44 border-t border-slate-800 bg-slate-950 flex flex-col text-xs">
+          <div class="h-6 bg-slate-900/60 px-3 flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800/80">
+            <span>EXECUTION CONSOLE</span>
+            <span id="exec-status" class="text-slate-500">Ready</span>
+          </div>
+          <pre id="console-output" class="flex-1 p-3 overflow-y-auto text-slate-300 font-mono text-[11px] select-text">Click "RUN CODE" or press Ctrl+Enter to execute sandboxed Python...</pre>
+        </div>
+      </div>
+
+      <!-- TAB 2: Screenshot Preview -->
+      <div id="panel-screenshots" class="hidden flex-1 flex flex-col overflow-hidden p-4 space-y-3">
+        <div class="flex-1 bg-slate-900/50 border border-slate-800 rounded-lg flex items-center justify-center overflow-hidden relative">
+          <img id="screenshot-preview-img" src="" alt="No screenshot captured yet" class="hidden max-h-full max-w-full object-contain" />
+          <div id="screenshot-empty-msg" class="text-slate-500 text-xs text-center p-6">
+            No screenshot preview yet.<br>Click <span class="text-blue-400 font-semibold">Capture Screen</span> above or ask JARVIS to take a screenshot.
+          </div>
+        </div>
+        <div class="h-24 border-t border-slate-800 pt-2">
+          <div class="text-[10px] text-slate-400 mb-1.5 font-semibold">RECENT CAPTURES</div>
+          <div id="screenshot-gallery" class="flex gap-2 overflow-x-auto h-16 items-center text-xs text-slate-500">
+            None
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 3: Running Apps List -->
+      <div id="panel-apps" class="hidden flex-1 flex flex-col overflow-hidden p-4 space-y-3">
+        <div class="bg-slate-900/60 border border-slate-800 rounded p-2.5 text-xs flex items-center justify-between">
+          <span class="text-slate-400">Active Window: <span id="active-window-label" class="text-emerald-400 font-semibold">...</span></span>
+          <span class="text-slate-500 text-[11px]">Count: <span id="apps-count-label">0</span></span>
+        </div>
+        <div id="running-apps-list" class="flex-1 overflow-y-auto bg-slate-900/40 border border-slate-800 rounded p-2 space-y-1 text-xs font-mono">
+          <div class="text-slate-500 p-2">Loading running applications...</div>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Load Monaco Editor -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+  <script>
+    let editor = null;
+    let chatHistory = [];
+    let currentMode = "GENERAL";
+    let showDetails = false;
+
+    // Initialize Monaco Editor
+    require.config({ paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+    require(['vs/editor/editor.main'], function () {
+      editor = monaco.editor.create(document.getElementById('monaco-container'), {
+        value: `# Local Sandboxed Python Surface\n# AST Security blocks dangerous imports (os, sys, subprocess)\n\ndef compute_primes(limit: int):\n    primes = []\n    for n in range(2, limit):\n        if all(n % p != 0 for p in primes):\n            primes.append(n)\n    return primes\n\nresult = compute_primes(50)\nprint(f"Primes under 50: {result}")\n`,
+        language: 'python',
+        theme: 'vs-dark',
+        minimap: { enabled: false },
+        fontSize: 12,
+        automaticLayout: true
+      });
+
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, function () {
+        executeSandbox();
+      });
+    });
+
+    // Update active mode UI buttons
+    function updateModeUI(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        if (btn.getAttribute('data-mode') === mode) {
+          btn.classList.add('active-mode');
+        } else {
+          btn.classList.remove('active-mode');
+        }
+      });
+      const badge = document.getElementById('active-mode-badge');
+      if (badge) badge.textContent = `MODE: ${mode}`;
+    }
+
+    // Switch mode
+    async function setMode(mode) {
+      try {
+        const res = await fetch('/api/mode', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode })
+        });
+        const data = await res.json();
+        updateModeUI(data.active_mode);
+        initStatus();
+      } catch (e) {
+        console.error('Failed to set mode:', e);
+      }
+    }
+
+    // Fetch status and models
+    async function initStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        updateModeUI(data.active_mode);
+
+        const sel = document.getElementById('model-select');
+        sel.innerHTML = '';
+        data.available_models.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m;
+          opt.textContent = m;
+          if (m === data.active_model) opt.selected = true;
+          sel.appendChild(opt);
+        });
+
+        // Show tools relevant to current mode
+        const modeTools = (data.modes_map[data.active_mode] || []).concat(data.modes_map['GENERAL'] || []);
+        document.getElementById('active-plugins-list').textContent = modeTools.join(', ') || 'None';
+      } catch (err) {
+        console.error('Failed to load status', err);
+      }
+    }
+
+    // Execute Sandbox Code
+    async function executeSandbox() {
+      if (!editor) return;
+      const code = editor.getValue();
+      const output = document.getElementById('console-output');
+      const status = document.getElementById('exec-status');
+
+      status.textContent = 'Executing...';
+      status.className = 'text-amber-400';
+      output.textContent = 'Running isolated subprocess with AST guard...\n';
+
+      try {
+        const res = await fetch('/api/sandbox/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code })
+        });
+        const result = await res.json();
+
+        if (result.success) {
+          status.textContent = 'Success (Exit 0)';
+          status.className = 'text-emerald-400';
+          output.textContent = result.stdout || '[Execution completed with no stdout]';
+        } else {
+          status.textContent = result.violation ? 'Blocked by AST' : 'Failed';
+          status.className = 'text-rose-400';
+          output.textContent = result.stderr || 'Execution failed.';
+        }
+      } catch (e) {
+        status.textContent = 'API Error';
+        status.className = 'text-rose-400';
+        output.textContent = `Error calling sandbox: ${e.message}`;
+      }
+    }
+
+    // Send Chat Message via SSE Streaming
+    async function sendChat() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+
+      input.value = '';
+      const streamDiv = document.getElementById('chat-stream');
+
+      // User Message bubble
+      const userBubble = document.createElement('div');
+      userBubble.className = 'p-3 rounded bg-blue-950/40 border border-blue-900/50 text-slate-200 ml-8';
+      userBubble.innerHTML = `<div class="text-[10px] text-blue-400 font-semibold mb-1">YOU</div><div>${escapeHtml(text)}</div>`;
+      streamDiv.appendChild(userBubble);
+      streamDiv.scrollTop = streamDiv.scrollHeight;
+
+      chatHistory.push({ role: 'user', content: text });
+
+      // Assistant Message placeholder
+      const botBubble = document.createElement('div');
+      botBubble.className = 'p-3 rounded bg-slate-900/80 border border-slate-800 text-slate-200 mr-8';
+      botBubble.innerHTML = `
+        <div class="text-[10px] text-emerald-400 font-semibold mb-1 flex items-center justify-between">
+          <span>JARVIS</span>
+          <span class="status-indicator text-slate-500 font-normal"></span>
+        </div>
+        <div class="reply-text whitespace-pre-wrap"></div>
+        <div class="media-area"></div>
+        <div class="tool-trace ${showDetails ? '' : 'hidden'} mt-2 pt-2 border-t border-slate-800/80 space-y-1"></div>
+      `;
+      streamDiv.appendChild(botBubble);
+      const replyDiv = botBubble.querySelector('.reply-text');
+      const mediaDiv = botBubble.querySelector('.media-area');
+      const traceDiv = botBubble.querySelector('.tool-trace');
+      const statusInd = botBubble.querySelector('.status-indicator');
+
+      // Check if user explicitly asked to see logs/activity
+      const askedForLogs = /\b(show|what|view|inspect)\b.*\b(log|logs|doing|did|activity|trace|steps|tools)\b/i.test(text);
+      if (askedForLogs) {
+        traceDiv.classList.remove('hidden');
+        try {
+          const logRes = await fetch('/api/logs');
+          const logData = await logRes.json();
+          const recent = (logData.logs || []).slice(-8);
+          if (recent.length > 0) {
+            const logBox = document.createElement('div');
+            logBox.className = 'text-[11px] text-slate-400 bg-slate-950/70 p-2 rounded font-mono border border-slate-800 my-1 space-y-0.5';
+            logBox.innerHTML = `<div class="text-blue-400 font-semibold mb-1">Recent Internal Activity:</div>` +
+              recent.map(l => `<div>[${l.timestamp}] <span class="text-slate-300">${escapeHtml(l.event)}</span>: ${escapeHtml(JSON.stringify(l.detail))}</div>`).join('');
+            traceDiv.appendChild(logBox);
+          }
+        } catch (e) {}
+      }
+
+      const selectedModel = document.getElementById('model-select').value;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: chatHistory, model: selectedModel, mode: currentMode })
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let assistantReply = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const textChunk = decoder.decode(value, { stream: true });
+          const lines = textChunk.split('\n');
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                
+                if (data.type === 'mode_info') {
+                  updateModeUI(data.mode);
+                } else if (data.type === 'token') {
+                  assistantReply += data.token;
+                  replyDiv.innerText = assistantReply;
+                  streamDiv.scrollTop = streamDiv.scrollHeight;
+                } else if (data.type === 'tool_start') {
+                  statusInd.textContent = 'Processing...';
+                  const toolEl = document.createElement('div');
+                  toolEl.className = 'tool-pill text-xs px-2 py-1 rounded inline-block my-1 font-mono';
+                  toolEl.textContent = `⚙ Tool: ${data.tool}(${JSON.stringify(data.args)})`;
+                  traceDiv.appendChild(toolEl);
+                } else if (data.type === 'tool_result') {
+                  statusInd.textContent = '';
+                  const resEl = document.createElement('div');
+                  resEl.className = 'text-[11px] text-slate-400 bg-slate-950/70 p-1.5 rounded font-mono border border-slate-800 my-1';
+                  resEl.textContent = `→ Result: ${JSON.stringify(data.result)}`;
+                  traceDiv.appendChild(resEl);
+
+                  // Always render requested screenshot preview cleanly
+                  if (data.result && data.result.image_url) {
+                    const imgWrap = document.createElement('div');
+                    imgWrap.innerHTML = `<a href="${data.result.image_url}" target="_blank"><img src="${data.result.image_url}" class="mt-2 rounded border border-slate-700 max-h-48 object-contain hover:opacity-95" /></a>`;
+                    mediaDiv.appendChild(imgWrap);
+                  }
+                } else if (data.type === 'done') {
+                  statusInd.textContent = '';
+                } else if (data.type === 'error') {
+                  const errEl = document.createElement('div');
+                  errEl.className = 'text-xs text-rose-400 bg-rose-950/30 p-2 rounded border border-rose-900 my-1';
+                  errEl.textContent = `Error: ${data.content}`;
+                  replyDiv.appendChild(errEl);
+                }
+              } catch (e) {
+                // partial json chunk
+              }
+            }
+          }
+        }
+
+        if (assistantReply) {
+          chatHistory.push({ role: 'assistant', content: assistantReply });
+        }
+      } catch (err) {
+        replyDiv.innerHTML += `<div class="text-rose-400 text-xs">Stream interrupted: ${err.message}</div>`;
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Bind Mode Buttons
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-mode');
+        setMode(mode);
+      });
+    });
+
+    // Bind Chat & Keyboard Events
+    document.getElementById('send-btn').addEventListener('click', sendChat);
+    document.getElementById('chat-input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChat();
+      }
+    });
+
+    document.getElementById('toggle-details-btn').addEventListener('click', (e) => {
+      showDetails = !showDetails;
+      e.target.textContent = showDetails ? 'Activity: Visible' : 'Activity: Hidden';
+      e.target.className = showDetails
+        ? 'bg-blue-900/50 hover:bg-blue-800/60 text-blue-300 px-2 py-1 rounded text-xs border border-blue-700 transition'
+        : 'bg-slate-900 hover:bg-slate-800 text-slate-400 px-2 py-1 rounded text-xs border border-slate-800 transition';
+      document.querySelectorAll('.tool-trace').forEach(el => {
+        if (el.children.length > 0) {
+          el.classList.toggle('hidden', !showDetails);
+        }
+      });
+    });
+
+    document.getElementById('run-sandbox-btn').addEventListener('click', executeSandbox);
+    document.getElementById('reload-plugins-btn').addEventListener('click', async () => {
+      const res = await fetch('/api/plugins/reload', { method: 'POST' });
+      const data = await res.json();
+      initStatus();
+      alert(`Reloaded ${data.plugins.length} plugins in mode [${data.mode}]`);
+    });
+
+    // ========== TAB SWITCHING ==========
+    function switchTab(tabName) {
+      // Hide all panels
+      document.querySelectorAll('[id^="panel-"]').forEach(p => p.classList.add('hidden'));
+      // Show selected panel
+      const panel = document.getElementById('panel-' + tabName);
+      if (panel) {
+        panel.classList.remove('hidden');
+        panel.classList.add('flex-1', 'flex', 'flex-col');
+      }
+      // Update tab button styles
+      document.querySelectorAll('.right-tab-btn').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+          btn.className = 'right-tab-btn px-2.5 py-1 rounded bg-slate-800 text-slate-100 font-semibold transition';
+        } else {
+          btn.className = 'right-tab-btn px-2.5 py-1 rounded text-slate-400 hover:text-slate-200 transition';
+        }
+      });
+      // Show/hide corresponding action bars
+      document.querySelectorAll('[id^="tab-action-"]').forEach(el => el.classList.add('hidden'));
+      const actionBar = document.getElementById('tab-action-' + tabName);
+      if (actionBar) actionBar.classList.remove('hidden');
+
+      // Auto-refresh data when switching tabs
+      if (tabName === 'screenshots') loadScreenshotGallery();
+      if (tabName === 'apps') loadRunningApps();
+    }
+
+    // Bind tab buttons
+    document.querySelectorAll('.right-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // ========== SCREENSHOTS ==========
+    async function captureScreenshot() {
+      const btn = document.getElementById('capture-screen-btn');
+      btn.textContent = 'Capturing...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/screenshot', { method: 'POST' });
+        const data = await res.json();
+        if (data.image_url) {
+          const img = document.getElementById('screenshot-preview-img');
+          img.src = data.image_url + '?t=' + Date.now();
+          img.classList.remove('hidden');
+          document.getElementById('screenshot-empty-msg').classList.add('hidden');
+          loadScreenshotGallery();
+        } else if (data.error) {
+          alert('Screenshot failed: ' + data.error);
+        }
+      } catch (e) {
+        alert('Screenshot error: ' + e.message);
+      }
+      btn.textContent = 'Capture Screen';
+      btn.disabled = false;
+    }
+
+    async function loadScreenshotGallery() {
+      try {
+        const res = await fetch('/api/screenshots');
+        const data = await res.json();
+        const gallery = document.getElementById('screenshot-gallery');
+        if (data.screenshots && data.screenshots.length > 0) {
+          gallery.innerHTML = data.screenshots.map(url => `
+            <img src="${url}?t=${Date.now()}" 
+                 class="h-14 w-20 object-cover rounded border border-slate-700 cursor-pointer hover:border-blue-500 transition flex-shrink-0"
+                 onclick="previewScreenshot('${url}')"
+                 title="${url.split('/').pop()}" />
+          `).join('');
+          // Auto-show latest if no preview yet
+          const previewImg = document.getElementById('screenshot-preview-img');
+          if (!previewImg.src || previewImg.src === window.location.href) {
+            previewScreenshot(data.screenshots[0]);
+          }
+        } else {
+          gallery.innerHTML = '<span class="text-slate-500 text-xs">No captures yet</span>';
+        }
+      } catch (e) {
+        console.error('Failed to load gallery:', e);
+      }
+    }
+
+    function previewScreenshot(url) {
+      const img = document.getElementById('screenshot-preview-img');
+      img.src = url + '?t=' + Date.now();
+      img.classList.remove('hidden');
+      document.getElementById('screenshot-empty-msg').classList.add('hidden');
+    }
+
+    document.getElementById('capture-screen-btn').addEventListener('click', captureScreenshot);
+
+    // ========== RUNNING APPS ==========
+    async function loadRunningApps() {
+      const list = document.getElementById('running-apps-list');
+      list.innerHTML = '<div class="text-slate-500 p-2 animate-pulse">Scanning processes...</div>';
+      try {
+        const res = await fetch('/api/apps');
+        const data = await res.json();
+        document.getElementById('active-window-label').textContent = data.active_window || 'Unknown';
+        const apps = data.apps || [];
+        document.getElementById('apps-count-label').textContent = apps.length;
+        if (apps.length > 0) {
+          list.innerHTML = apps.map(app => {
+            const name = typeof app === 'string' ? app : (app.name || app.Name || JSON.stringify(app));
+            const pid = (typeof app === 'object' && (app.pid || app.PID)) ? ` <span class="text-slate-600">[${app.pid || app.PID}]</span>` : '';
+            const mem = (typeof app === 'object' && (app.mem || app.memory)) ? ` <span class="text-slate-600">${app.mem || app.memory}</span>` : '';
+            return `<div class="flex items-center justify-between py-1 px-2 rounded hover:bg-slate-800/60 transition">
+              <span class="text-slate-300 truncate">▸ ${escapeHtml(name)}${pid}</span>
+              <span class="text-slate-500 text-[10px]">${mem ? escapeHtml(String(app.mem || app.memory || '')) : ''}</span>
+            </div>`;
+          }).join('');
+        } else {
+          list.innerHTML = '<div class="text-slate-500 p-2">No visible applications detected</div>';
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="text-rose-400 p-2">Error loading apps: ${e.message}</div>`;
+      }
+    }
+
+    document.getElementById('refresh-apps-btn').addEventListener('click', loadRunningApps);
+
+    // ========== SCREENSHOT FROM CHAT STREAM ==========
+    // Patch: when a tool_result with image_url comes through chat, also update screenshot panel
+    const _origToolResultHandler = true; // flag only; patched inline in sendChat below
+
+    // Monkey-patch the existing tool_result handler in sendChat to also refresh gallery
+    (function patchChatScreenshotRefresh() {
+      const origSendChat = sendChat;
+      sendChat = async function() {
+        await origSendChat();
+        // After chat completes, refresh gallery in case a screenshot was taken via chat
+        loadScreenshotGallery();
+      };
+    })();
+
+    // Initialize default tab
+    switchTab('sandbox');
+    initStatus();
+  </script>
+</body>
+</html>
